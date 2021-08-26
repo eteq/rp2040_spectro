@@ -78,9 +78,9 @@ void capture_dma() {
 }
 
 int main() {
-    bi_decl(bi_program_description("This is an in-progress spetrometer binary."));
+    bi_decl(bi_program_description("This is an in-progress spectrometer binary."));
     bi_decl(bi_1pin_with_name(LED_GPIO, "On-board LED"));
-    
+
     stdio_init_all();
 
     gpio_init(LED_GPIO);
