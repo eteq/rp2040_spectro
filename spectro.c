@@ -8,6 +8,7 @@
 
 
 #define LED_GPIO 13
+#define IMPULSE_GPIO 6
 
 // Channel 0 is GPIO26
 #define ADC_CHANNEL 0
@@ -64,6 +65,7 @@ void setup_dma() {
 
 void capture_dma() {
     printf("Starting capture\n");
+    gpio_put(IMPULSE_GPIO, 0);
     adc_run(true);
     dma_channel_wait_for_finish_blocking(dma_chan);
     adc_run(false);
@@ -86,15 +88,19 @@ int main() {
     gpio_init(LED_GPIO);
     gpio_set_dir(LED_GPIO, GPIO_OUT);
 
+    gpio_init(IMPULSE_GPIO);
+    gpio_set_dir(IMPULSE_GPIO, GPIO_OUT);
+
     setup_adc();
 
     printf("ADC raw result: %d\n", adc_read());
-    sleep_ms(100);
 
     printf("Getting DMA Ready\n");
     setup_dma();
 
-    for (int i=0; i < 3; i++) {
+    gpio_put(IMPULSE_GPIO, 1); // start charging
+    // this indicates startup but also ensures the cap has ample time to charge
+    for (int i=0; i < 5; i++) {
         gpio_put(LED_GPIO, 1);
         sleep_ms(250);
         gpio_put(LED_GPIO, 0);
@@ -102,6 +108,9 @@ int main() {
     }
 
     capture_dma();
+
+    sleep_ms(1000);
+    printf("Later ADC raw result: %d\n", adc_read());
 
     return 0;
 }
