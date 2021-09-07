@@ -9,7 +9,7 @@
 
 #define LED_GPIO 13
 #define IMPULSE_GPIO 6
-#define WAIT_TIME_MS 2000
+#define WAIT_TIME_MS 10
 
 // Channel 0 is GPIO26
 #define ADC_CHANNEL 0
@@ -17,6 +17,8 @@
 
 uint8_t samples[N_SAMPLES];
 uint dma_chan;
+
+bool should_capture = false;
 
 
 void setup_adc() {
@@ -66,7 +68,7 @@ void setup_dma() {
 
 void capture_dma() {
     printf("Starting capture\n");
-    gpio_put(IMPULSE_GPIO, 0);
+    gpio_put(IMPULSE_GPIO, !gpio_get(IMPULSE_GPIO));
     adc_run(true);
     dma_channel_wait_for_finish_blocking(dma_chan);
     adc_run(false);
@@ -81,13 +83,19 @@ void capture_dma() {
 }
 
 void buttons_callback(uint gpio, uint32_t events) {
+    bool toggled_gpio;
+
     if (events & GPIO_IRQ_EDGE_FALL) {
         switch (gpio) {
             case 9: //A
-                printf("A pressed\n");
+                should_capture = true;
+                //printf("A pressed\n");
                 break;
             case 8: //B
-                printf("B pressed\n");
+                toggled_gpio = ! gpio_get(IMPULSE_GPIO);
+                gpio_put(IMPULSE_GPIO, toggled_gpio);
+                printf("Reset impulse GPIO to %d\n", toggled_gpio);
+                //printf("B pressed\n");
                 break;
             case 7: //C
                 printf("C pressed\n");
@@ -110,8 +118,8 @@ int main() {
 
     // featherwing buttons
     for (int pinnum=7; pinnum<10; pinnum++) {
-        gpio_init(IMPULSE_GPIO);
-        gpio_set_dir(IMPULSE_GPIO, GPIO_IN);
+        gpio_init(pinnum);
+        gpio_set_dir(pinnum, GPIO_IN);
         gpio_pull_up(pinnum);
         gpio_set_irq_enabled_with_callback(pinnum, GPIO_IRQ_EDGE_FALL, true, &buttons_callback);
     }
@@ -133,15 +141,14 @@ int main() {
     }
 
     while (true) {
-        capture_dma();
+        if (should_capture) {
+            gpio_put(LED_GPIO, 1);
+            capture_dma();
+            gpio_put(LED_GPIO, 0);
+            should_capture = false;
+        }
 
         sleep_ms(WAIT_TIME_MS);
-
-        printf("GPIOS (7,8,9): %d,%d,%d\n", gpio_get(7), gpio_get(8), gpio_get(9));
-
-        gpio_put(IMPULSE_GPIO, 1);
-        sleep_ms(WAIT_TIME_MS);
-
 
     }
 
