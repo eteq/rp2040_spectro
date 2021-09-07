@@ -9,6 +9,7 @@
 
 #define LED_GPIO 13
 #define IMPULSE_GPIO 6
+#define WAIT_TIME_MS 2000
 
 // Channel 0 is GPIO26
 #define ADC_CHANNEL 0
@@ -79,6 +80,22 @@ void capture_dma() {
 
 }
 
+void buttons_callback(uint gpio, uint32_t events) {
+    if (events & GPIO_IRQ_EDGE_FALL) {
+        switch (gpio) {
+            case 9: //A
+                printf("A pressed\n");
+                break;
+            case 8: //B
+                printf("B pressed\n");
+                break;
+            case 7: //C
+                printf("C pressed\n");
+                break;
+        }
+    }
+}
+
 int main() {
     bi_decl(bi_program_description("This is an in-progress spectrometer binary."));
     bi_decl(bi_1pin_with_name(LED_GPIO, "On-board LED"));
@@ -90,6 +107,14 @@ int main() {
 
     gpio_init(IMPULSE_GPIO);
     gpio_set_dir(IMPULSE_GPIO, GPIO_OUT);
+
+    // featherwing buttons
+    for (int pinnum=7; pinnum<10; pinnum++) {
+        gpio_init(IMPULSE_GPIO);
+        gpio_set_dir(IMPULSE_GPIO, GPIO_IN);
+        gpio_pull_up(pinnum);
+        gpio_set_irq_enabled_with_callback(pinnum, GPIO_IRQ_EDGE_FALL, true, &buttons_callback);
+    }
 
     setup_adc();
 
@@ -107,10 +132,18 @@ int main() {
         sleep_ms(250);
     }
 
-    capture_dma();
+    while (true) {
+        capture_dma();
 
-    sleep_ms(1000);
-    printf("Later ADC raw result: %d\n", adc_read());
+        sleep_ms(WAIT_TIME_MS);
+
+        printf("GPIOS (7,8,9): %d,%d,%d\n", gpio_get(7), gpio_get(8), gpio_get(9));
+
+        gpio_put(IMPULSE_GPIO, 1);
+        sleep_ms(WAIT_TIME_MS);
+
+
+    }
 
     return 0;
 }
