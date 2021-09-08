@@ -19,7 +19,8 @@ pico_enable_stdio_uart(spectro 1)
 
 pico_add_extra_outputs(spectro)
 
-target_link_libraries(spectro 
+target_link_libraries(spectro
                       pico_stdlib
                       hardware_adc
-                      hardware_dma)
+                      hardware_dma
+                      hardware_i2c)
