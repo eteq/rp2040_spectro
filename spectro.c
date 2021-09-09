@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <math.h>
+
 #include "pico/stdlib.h"
 #include "pico/binary_info.h"
 
@@ -9,7 +11,7 @@
 
 
 #define LED_GPIO 13
-#define IMPULSE_GPIO 6
+#define IMPULSE_GPIO 0
 
 #define SDA_PIN 2
 #define SCL_PIN 3
@@ -26,15 +28,17 @@
 #define HEIGHT 64
 
 #define ADC_CHANNEL 0 // Channel 0 is GPIO26
-#define N_SAMPLES 1024
+#define N_SAMPLES 4096  // ~10 ms
 
 #define WAIT_TIME_MS 10
 
 
 uint8_t samples[N_SAMPLES];
 uint dma_chan;
+dma_channel_config dma_cfg;
+uint display_spacing = 1;
 
-bool should_capture = false, should_draw = false;
+bool should_capture=false, should_draw=false, should_print=false;
 
 bool display_buffer[WIDTH][HEIGHT];
 
@@ -97,6 +101,35 @@ int write_display_buffer() {
     return ret;
 }
 
+void clear_buffer() {
+    for (int i=0;i<WIDTH;i++) {
+        for (int j=0;j<HEIGHT;j++) {
+            display_buffer[i][j] = false;
+        }
+    }
+}
+
+int buffer_from_samples() {
+    int sample_idx = 0;
+    float avgval;
+
+    clear_buffer();
+
+    for (int i=0; i < WIDTH; i++) {
+        avgval = 0;
+        for (int j=0; j < display_spacing; j++) {
+            avgval += samples[sample_idx++];
+            if (sample_idx >= N_SAMPLES) {
+                return -1;
+            }
+        }
+        avgval /= display_spacing;
+
+        display_buffer[i][(int)round(avgval * ((HEIGHT-1.)/255.))] = true;
+    }
+    return 0;
+}
+
 void setup_display() {
     const uint8_t display_on[2] = {0x0, 0xaf};
     const uint8_t display_init_bytes[20] = {0x0,  //control byte - many command follow
@@ -124,43 +157,44 @@ void setup_display() {
     gpio_pull_up(SCL_PIN);
 
     i2c_write_blocking(WHICH_I2C, DISPLAY_ADDR, display_init_bytes, n_init_bytes, false);
-    for (int i=0;i<WIDTH;i++) {
-        for (int j=0;j<HEIGHT;j++) {
-            display_buffer[i][j] = false;
-        }
-    }
+    clear_buffer();
     write_display_buffer();
     i2c_write_blocking(WHICH_I2C, DISPLAY_ADDR, display_on, 2, false);
 }
 
 void setup_dma() {
     dma_chan = dma_claim_unused_channel(true);
-    dma_channel_config cfg = dma_channel_get_default_config(dma_chan);
+    dma_cfg = dma_channel_get_default_config(dma_chan);
 
     // Reading from constant address, writing to incrementing byte addresses
-    channel_config_set_transfer_data_size(&cfg, DMA_SIZE_8);
-    channel_config_set_read_increment(&cfg, false);
-    channel_config_set_write_increment(&cfg, true);
+    channel_config_set_transfer_data_size(&dma_cfg, DMA_SIZE_8);
+    channel_config_set_read_increment(&dma_cfg, false);
+    channel_config_set_write_increment(&dma_cfg, true);
 
     // Pace transfers based on availability of ADC samples
-    channel_config_set_dreq(&cfg, DREQ_ADC);
+    channel_config_set_dreq(&dma_cfg, DREQ_ADC);
+}
 
-    dma_channel_configure(dma_chan, &cfg,
+void capture_dma() {
+    dma_channel_configure(dma_chan, &dma_cfg,
         samples,    // dst
         &adc_hw->fifo,  // src
         N_SAMPLES,  // transfer count
         true            // start immediately
     );
-}
 
-void capture_dma() {
     printf("Starting capture\n");
     gpio_put(IMPULSE_GPIO, !gpio_get(IMPULSE_GPIO));
     adc_run(true);
     dma_channel_wait_for_finish_blocking(dma_chan);
     adc_run(false);
     adc_fifo_drain();
-    printf("Capture finished. Results: [\n");
+    gpio_put(IMPULSE_GPIO, !gpio_get(IMPULSE_GPIO));
+
+}
+
+void print_samples() {
+    printf("Results: [\n");
 
     for (int i = 0; i < (N_SAMPLES-1); i++) {
         printf("%-3d, ", samples[i]);
@@ -175,12 +209,13 @@ void buttons_callback(uint gpio, uint32_t events) {
         switch (gpio) {
             case 9: //A
                 should_capture = true;
+                should_draw = true;
                 //printf("A pressed\n");
                 break;
             case 8: //B
+                display_spacing *= 2;
+                if (display_spacing > (N_SAMPLES/128)) { display_spacing = 1; }
                 should_draw = true;
-                display_buffer[4][4] = true;
-                display_buffer[115][55] = true;
                 //printf("B pressed\n");
                 break;
             case 7: //C
@@ -220,10 +255,7 @@ int main() {
     setup_adc();
     printf("ADC raw result: %d\n", adc_read());
     printf("Getting DMA Ready\n");
-    setup_dma();
 
-
-    gpio_put(IMPULSE_GPIO, 1); // start charging
     // this indicates startup but also ensures the cap has ample time to charge
     for (int i=0; i < 5; i++) {
         gpio_put(LED_GPIO, 1);
@@ -235,15 +267,18 @@ int main() {
     while (true) {
         if (should_capture) {
             gpio_put(LED_GPIO, 1);
+            setup_dma();
             capture_dma();
+            printf("Capture complete.\n");
+            if (should_print) { print_samples(); }
+
             gpio_put(LED_GPIO, 0);
             should_capture = false;
         }
 
         if (should_draw) {
-            printf("pre");
+            buffer_from_samples();
             write_display_buffer();
-            printf("post\n");
             should_draw = false;
         }
 
