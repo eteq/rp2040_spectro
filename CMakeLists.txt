@@ -10,9 +10,11 @@ set(PICO_BOARD adafruit_feather_rp2040)
 
 pico_sdk_init()
 
-add_executable(spectro
-  spectro.c
-)
+add_executable(spectro spectro.c)
+add_library(kiss_fftr kissfft/kiss_fftr.c)
+add_library(kiss_fft kissfft/kiss_fft.c)
+
+target_link_libraries(kiss_fftr kiss_fft)
 
 pico_enable_stdio_usb(spectro 1)
 pico_enable_stdio_uart(spectro 1)
@@ -23,4 +25,6 @@ target_link_libraries(spectro
                       pico_stdlib
                       hardware_adc
                       hardware_dma
-                      hardware_i2c)
+                      hardware_i2c
+                      kiss_fftr
+                     )

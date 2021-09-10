@@ -9,6 +9,8 @@
 #include "hardware/gpio.h"
 #include "hardware/i2c.h"
 
+#include "kissfft/kiss_fftr.h"
+
 
 #define LED_GPIO 13
 #define IMPULSE_GPIO 0
@@ -28,7 +30,7 @@
 #define HEIGHT 64
 
 #define ADC_CHANNEL 0 // Channel 0 is GPIO26
-#define N_SAMPLES 4096  // ~10 ms
+#define N_SAMPLES 1024  // 4096 -> ~10 ms
 
 #define WAIT_TIME_MS 10
 
@@ -38,7 +40,7 @@ uint dma_chan;
 dma_channel_config dma_cfg;
 uint display_spacing = 1;
 
-bool should_capture=false, should_draw=false, should_print=false;
+bool should_capture=false, should_draw=false, should_print=false, draw_frequency=false;
 
 bool display_buffer[WIDTH][HEIGHT];
 
@@ -109,7 +111,7 @@ void clear_buffer() {
     }
 }
 
-int buffer_from_samples() {
+int plot_to_buffer(uint8_t * samplearr, int nsamp) {
     int sample_idx = 0;
     float avgval;
 
@@ -118,8 +120,8 @@ int buffer_from_samples() {
     for (int i=0; i < WIDTH; i++) {
         avgval = 0;
         for (int j=0; j < display_spacing; j++) {
-            avgval += samples[sample_idx++];
-            if (sample_idx >= N_SAMPLES) {
+            avgval += samplearr[sample_idx++];
+            if (sample_idx >= nsamp) {
                 return -1;
             }
         }
@@ -158,7 +160,6 @@ void setup_display() {
 
     i2c_write_blocking(WHICH_I2C, DISPLAY_ADDR, display_init_bytes, n_init_bytes, false);
     clear_buffer();
-    write_display_buffer();
     i2c_write_blocking(WHICH_I2C, DISPLAY_ADDR, display_on, 2, false);
 }
 
@@ -203,26 +204,29 @@ void print_samples() {
 }
 
 void buttons_callback(uint gpio, uint32_t events) {
-    bool toggled_gpio;
-
     if (events & GPIO_IRQ_EDGE_FALL) {
         switch (gpio) {
             case 9: //A
                 should_capture = true;
                 should_draw = true;
-                //printf("A pressed\n");
                 break;
             case 8: //B
                 display_spacing *= 2;
                 if (display_spacing > (N_SAMPLES/128)) { display_spacing = 1; }
                 should_draw = true;
-                //printf("B pressed\n");
                 break;
             case 7: //C
-                toggled_gpio = ! gpio_get(IMPULSE_GPIO);
-                gpio_put(IMPULSE_GPIO, toggled_gpio);
-                printf("Reset impulse GPIO to %d\n", toggled_gpio);
-                //printf("C pressed\n");
+                //bool toggled_gpio = ! gpio_get(IMPULSE_GPIO);
+                //gpio_put(IMPULSE_GPIO, toggled_gpio);
+                //printf("Reset impulse GPIO to %d\n", toggled_gpio);
+                if (draw_frequency) {
+                    printf("Switching to time plot\n");
+                    draw_frequency = false;
+                } else {
+                    printf("Switching to freqency plot\n");
+                    draw_frequency = true;
+                }
+                should_draw = true;
                 break;
         }
     }
@@ -255,6 +259,7 @@ int main() {
     setup_adc();
     printf("ADC raw result: %d\n", adc_read());
     printf("Getting DMA Ready\n");
+    setup_dma();
 
     // this indicates startup but also ensures the cap has ample time to charge
     for (int i=0; i < 5; i++) {
@@ -267,7 +272,6 @@ int main() {
     while (true) {
         if (should_capture) {
             gpio_put(LED_GPIO, 1);
-            setup_dma();
             capture_dma();
             printf("Capture complete.\n");
             if (should_print) { print_samples(); }
@@ -277,7 +281,35 @@ int main() {
         }
 
         if (should_draw) {
-            buffer_from_samples();
+            if (draw_frequency) {
+                kiss_fft_scalar samples_fft_t[N_SAMPLES];
+                kiss_fft_cpx fft_cpx[N_SAMPLES];
+                double fftabssq[N_SAMPLES/2 + 1];
+                uint8_t fftabs[N_SAMPLES/2 + 1];
+                double maxfftsq=0;
+                kiss_fftr_cfg fftrcfg = kiss_fftr_alloc(N_SAMPLES, false, 0, 0);
+
+                uint64_t sum = 0;
+                for (int i=0;i < N_SAMPLES;i++) {sum += samples[i];}
+                float avg = (float)sum/N_SAMPLES;
+                for (int i=0;i < N_SAMPLES;i++) {samples_fft_t[i] = (float)samples[i] - avg;}
+
+                kiss_fftr(fftrcfg, samples_fft_t, fft_cpx);
+                for (int i=0;i<N_SAMPLES/2 + 1;i++) {
+                    fftabssq[i] = fft_cpx[i].r*fft_cpx[i].r + fft_cpx[i].i*fft_cpx[i].i;
+                    if (fftabssq[i] > maxfftsq) {
+                        maxfftsq = fftabssq[i];
+                    }
+                }
+                kiss_fft_free(fftrcfg);
+
+                for (int i=0;i<N_SAMPLES/2 + 1;i++) {
+                    fftabs[i] = round(255*sqrt(fftabssq[i]/maxfftsq));
+                }
+                plot_to_buffer(fftabs, N_SAMPLES/2 + 1);
+            } else {
+                plot_to_buffer(samples, N_SAMPLES);
+            }
             write_display_buffer();
             should_draw = false;
         }
