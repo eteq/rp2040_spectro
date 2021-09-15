@@ -11,6 +11,9 @@
 
 #include "kissfft/kiss_fftr.h"
 
+#include "font8x8_basic.h"
+#define FONT_WIDTH 8
+
 
 #define LED_GPIO 13
 #define IMPULSE_GPIO 0
@@ -30,7 +33,7 @@
 #define HEIGHT 64
 
 #define ADC_CHANNEL 0 // Channel 0 is GPIO26
-#define N_SAMPLES 1024  // 4096 -> ~10 ms
+#define N_SAMPLES 8192  // 8192 -> ~20 ms
 
 #define WAIT_TIME_MS 10
 
@@ -107,6 +110,15 @@ void clear_buffer() {
     for (int i=0;i<WIDTH;i++) {
         for (int j=0;j<HEIGHT;j++) {
             display_buffer[i][j] = false;
+        }
+    }
+}
+
+int char_to_buffer(char chr, uint x, uint y) {
+    char * bmp  = font8x8_basic[chr];
+    for (int i=0; i < 8; i++) {
+        for (int j=0; j < 8; j++) {
+            display_buffer[i+x][j+y] = (bmp[(7-j)] >> i) & 1;
         }
     }
 }
@@ -310,6 +322,35 @@ int main() {
             } else {
                 plot_to_buffer(samples, N_SAMPLES);
             }
+
+            char toprint[16];
+            int n, offset;
+
+            if (draw_frequency) {
+                float fdisp = 500000. * display_spacing * 128. / N_SAMPLES;
+                printf("%g Hz\n", fdisp);
+                if (fdisp > 1e3) {
+                    n = sprintf(toprint, "%.2fkHz", fdisp/1e3);
+                } else {
+                    n = sprintf(toprint, "%.2gHz", fdisp);
+                }
+            } else {
+                float tdisp = 128./500000. * display_spacing;
+                printf("%g sec\n", tdisp);
+                if ((1e-3 > tdisp) && (tdisp > 1e-6)) {
+                    n = sprintf(toprint, "%.1fus", tdisp*1e6);
+                } else if (tdisp < 1) {
+                    n = sprintf(toprint, "%.1fms", tdisp*1e3);
+                } else {
+                    n = sprintf(toprint, "%.1gs", tdisp);
+                }
+            }
+            offset = 127 - 8*n; if (n < 0) { offset = 0; }
+            for (int i=0; i < n; i++) {
+                if (offset + 8*i + 7 >= 128) { break; } // this should only be if the string < 16...
+                char_to_buffer(toprint[i], offset + 8*i, 56);
+            }
+
             write_display_buffer();
             should_draw = false;
         }
