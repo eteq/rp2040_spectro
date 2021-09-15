@@ -282,6 +282,9 @@ int main() {
     }
 
     while (true) {
+        int maxfftidx;
+        double maxfftsq;
+
         if (should_capture) {
             gpio_put(LED_GPIO, 1);
             capture_dma();
@@ -298,8 +301,9 @@ int main() {
                 kiss_fft_cpx fft_cpx[N_SAMPLES];
                 double fftabssq[N_SAMPLES/2 + 1];
                 uint8_t fftabs[N_SAMPLES/2 + 1];
-                double maxfftsq=0;
                 kiss_fftr_cfg fftrcfg = kiss_fftr_alloc(N_SAMPLES, false, 0, 0);
+                maxfftsq=0;
+                maxfftidx=0;
 
                 uint64_t sum = 0;
                 for (int i=0;i < N_SAMPLES;i++) {sum += samples[i];}
@@ -311,6 +315,7 @@ int main() {
                     fftabssq[i] = fft_cpx[i].r*fft_cpx[i].r + fft_cpx[i].i*fft_cpx[i].i;
                     if (fftabssq[i] > maxfftsq) {
                         maxfftsq = fftabssq[i];
+                        maxfftidx = i;
                     }
                 }
                 kiss_fft_free(fftrcfg);
@@ -327,12 +332,21 @@ int main() {
             int n, offset;
 
             if (draw_frequency) {
-                float fdisp = 500000. * display_spacing * 128. / N_SAMPLES;
+                float fdisp;
+                char prefix[2];
+                if ((display_spacing*2) > (N_SAMPLES/128)) {
+                    // this is the last display spacing, so instead we use it to tell the user where the peak is
+                    fdisp = 500000. * maxfftidx / N_SAMPLES;
+                    strcpy(prefix, "p");
+                } else {
+                    fdisp = 500000. * display_spacing * 128. / N_SAMPLES;
+                    strcpy(prefix, "");
+                }
                 printf("%g Hz\n", fdisp);
                 if (fdisp > 1e3) {
-                    n = sprintf(toprint, "%.2fkHz", fdisp/1e3);
+                    n = sprintf(toprint, "%s%.2fkHz", prefix, fdisp/1e3);
                 } else {
-                    n = sprintf(toprint, "%.2gHz", fdisp);
+                    n = sprintf(toprint, "%s%.2gHz", prefix, fdisp);
                 }
             } else {
                 float tdisp = 128./500000. * display_spacing;
