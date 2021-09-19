@@ -41,7 +41,7 @@
 uint8_t samples[N_SAMPLES];
 uint dma_chan;
 dma_channel_config dma_cfg;
-uint display_spacing = 1;
+int display_spacing = 1;
 
 bool should_capture=false, should_draw=false, should_print=false, draw_frequency=false;
 
@@ -124,6 +124,7 @@ int char_to_buffer(char chr, uint x, uint y) {
 }
 
 int plot_to_buffer(uint8_t * samplearr, int nsamp) {
+    assert(nsamp >= WIDTH);
     int sample_idx = 0;
     float avgval;
 
@@ -141,6 +142,28 @@ int plot_to_buffer(uint8_t * samplearr, int nsamp) {
 
         display_buffer[i][(int)round(avgval * ((HEIGHT-1.)/255.))] = true;
     }
+    return 0;
+}
+int plot_around_to_buffer(uint8_t * samplearr, int nsamp, int around_idx) {
+    assert(nsamp >= WIDTH);
+
+    int start_idx;
+
+    clear_buffer();
+
+    if (around_idx < WIDTH / 2) {
+        start_idx = 0;
+    }  else if (around_idx > (nsamp - WIDTH/2)) {
+        start_idx = nsamp - 128;
+    } else {
+        start_idx = around_idx - WIDTH/2;
+    }
+
+    for (int i=0; i < WIDTH; i++) {
+        int valint = (int)round(samplearr[i+start_idx] * ((HEIGHT-1.)/255.));
+        display_buffer[i][valint] = true;
+    }
+
     return 0;
 }
 
@@ -223,8 +246,18 @@ void buttons_callback(uint gpio, uint32_t events) {
                 should_draw = true;
                 break;
             case 8: //B
-                display_spacing *= 2;
-                if (display_spacing > (N_SAMPLES/128)) { display_spacing = 1; }
+                if (display_spacing == -1) {
+                    display_spacing = 1;
+                } else {
+                    display_spacing *= 2;
+                    if (display_spacing > (N_SAMPLES/128)) {
+                        if (draw_frequency) {
+                            display_spacing = -1;  // means do the peak-zoom
+                        } else {
+                            display_spacing = 1;
+                        }
+                    }
+                }
                 should_draw = true;
                 break;
             case 7: //C
@@ -323,7 +356,12 @@ int main() {
                 for (int i=0;i<N_SAMPLES/2 + 1;i++) {
                     fftabs[i] = round(255*sqrt(fftabssq[i]/maxfftsq));
                 }
-                plot_to_buffer(fftabs, N_SAMPLES/2 + 1);
+                if (display_spacing == -1) {
+                    // zoom in on peak
+                    plot_around_to_buffer(fftabs, N_SAMPLES/2 + 1, maxfftidx);
+                } else {
+                    plot_to_buffer(fftabs, N_SAMPLES/2 + 1);
+                }
             } else {
                 plot_to_buffer(samples, N_SAMPLES);
             }
@@ -334,8 +372,8 @@ int main() {
             if (draw_frequency) {
                 float fdisp;
                 char prefix[2];
-                if ((display_spacing*2) > (N_SAMPLES/128)) {
-                    // this is the last display spacing, so instead we use it to tell the user where the peak is
+                if (display_spacing == -1) {
+                    // tell the user where the peak is
                     fdisp = 500000. * maxfftidx / N_SAMPLES;
                     strcpy(prefix, "p");
                 } else {
