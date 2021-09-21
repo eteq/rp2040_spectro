@@ -43,7 +43,11 @@ uint dma_chan;
 dma_channel_config dma_cfg;
 int display_spacing = 1;
 
-bool should_capture=false, should_draw=false, should_print=false, draw_frequency=false;
+bool should_capture=false;
+bool should_draw=false;
+bool should_print=false;
+bool draw_frequency=false;
+bool continuous_mode=false;
 
 bool display_buffer[WIDTH][HEIGHT];
 
@@ -244,6 +248,7 @@ void buttons_callback(uint gpio, uint32_t events) {
             case 9: //A
                 should_capture = true;
                 should_draw = true;
+                continuous_mode = ! continuous_mode;
                 break;
             case 8: //B
                 if (display_spacing == -1) {
@@ -318,7 +323,7 @@ int main() {
         int maxfftidx;
         double maxfftsq;
 
-        if (should_capture) {
+        if (should_capture | continuous_mode) {
             gpio_put(LED_GPIO, 1);
             capture_dma();
             printf("Capture complete.\n");
@@ -328,7 +333,7 @@ int main() {
             should_capture = false;
         }
 
-        if (should_draw) {
+        if (should_draw | continuous_mode) {
             if (draw_frequency) {
                 kiss_fft_scalar samples_fft_t[N_SAMPLES];
                 kiss_fft_cpx fft_cpx[N_SAMPLES];
