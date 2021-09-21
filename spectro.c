@@ -35,6 +35,8 @@
 #define ADC_CHANNEL 0 // Channel 0 is GPIO26
 #define N_SAMPLES 8192  // 8192 -> ~20 ms
 
+#define BUTTON_HOLD_MS 2500 // ms to register a "press and hold" action
+
 #define WAIT_TIME_MS 10
 
 
@@ -43,7 +45,13 @@ uint dma_chan;
 dma_channel_config dma_cfg;
 int display_spacing = 1;
 
-bool should_capture=false, should_draw=false, should_print=false, draw_frequency=false;
+alarm_id_t button_a_alarm = -1; // initial state needed to not try to cancel
+
+bool should_capture=false;
+bool should_draw=false;
+bool continuous_mode=false;
+bool should_print=false;
+bool draw_frequency=false;
 
 bool display_buffer[WIDTH][HEIGHT];
 
@@ -238,10 +246,19 @@ void print_samples() {
     printf("%-3d\n]\n", samples[N_SAMPLES-1]);
 }
 
+int64_t button_hold_callback(alarm_id_t id, void *gpionum) {
+    if (*((uint *)gpionum) == 9) {  //button A
+        continuous_mode = ! continuous_mode;
+        return 0;
+    }
+}
+
 void buttons_callback(uint gpio, uint32_t events) {
     if (events & GPIO_IRQ_EDGE_FALL) {
         switch (gpio) {
             case 9: //A
+                if (button_a_alarm != -1) { cancel_alarm(button_a_alarm); }
+                button_a_alarm = add_alarm_in_ms(BUTTON_HOLD_MS, button_hold_callback, &gpio, false);
                 should_capture = true;
                 should_draw = true;
                 break;
@@ -275,6 +292,11 @@ void buttons_callback(uint gpio, uint32_t events) {
                 break;
         }
     }
+    if (events & GPIO_IRQ_EDGE_RISE)  {
+        if (gpio == 9) {
+            cancel_alarm(button_a_alarm);  // doesn't matter if it's triggered or not
+        }
+    }
 }
 
 int main() {
@@ -295,7 +317,7 @@ int main() {
         gpio_init(pinnum);
         gpio_set_dir(pinnum, GPIO_IN);
         gpio_pull_up(pinnum);
-        gpio_set_irq_enabled_with_callback(pinnum, GPIO_IRQ_EDGE_FALL, true, &buttons_callback);
+        gpio_set_irq_enabled_with_callback(pinnum, GPIO_IRQ_EDGE_FALL | GPIO_IRQ_EDGE_RISE, true, &buttons_callback);
     }
 
     printf("Getting display Ready\n");
@@ -328,7 +350,7 @@ int main() {
             should_capture = false;
         }
 
-        if (should_draw) {
+        if (should_draw | continuous_mode) {
             if (draw_frequency) {
                 kiss_fft_scalar samples_fft_t[N_SAMPLES];
                 kiss_fft_cpx fft_cpx[N_SAMPLES];
