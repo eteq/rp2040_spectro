@@ -44,6 +44,7 @@ uint8_t samples[N_SAMPLES];
 uint dma_chan;
 dma_channel_config dma_cfg;
 int display_spacing = 1;
+float maxval_samples = 255.;
 
 bool should_capture=false;
 bool should_draw=false;
@@ -133,7 +134,7 @@ int char_to_buffer(char chr, uint x, uint y) {
     }
 }
 
-int plot_to_buffer(uint8_t * samplearr, int nsamp) {
+int plot_to_buffer(uint8_t * samplearr, int nsamp, float maxval) {
     assert(nsamp >= WIDTH);
     int sample_idx = 0;
     float avgval;
@@ -150,11 +151,16 @@ int plot_to_buffer(uint8_t * samplearr, int nsamp) {
         }
         avgval /= display_spacing;
 
-        display_buffer[i][(int)round(avgval * ((HEIGHT-1.)/255.))] = true;
+        int valint = (int)round(avgval * ((HEIGHT-1.)/maxval));
+
+        // clamp to display range
+        if (valint >= HEIGHT) { valint = HEIGHT-1; }
+        if (valint < 0) { valint = 0; }
+        display_buffer[i][valint] = true;
     }
     return 0;
 }
-int plot_around_to_buffer(uint8_t * samplearr, int nsamp, int around_idx) {
+int plot_around_to_buffer(uint8_t * samplearr, int nsamp, int around_idx, float maxval) {
     assert(nsamp >= WIDTH);
 
     int start_idx;
@@ -170,7 +176,10 @@ int plot_around_to_buffer(uint8_t * samplearr, int nsamp, int around_idx) {
     }
 
     for (int i=0; i < WIDTH; i++) {
-        int valint = (int)round(samplearr[i+start_idx] * ((HEIGHT-1.)/255.));
+        int valint = (int)round(samplearr[i+start_idx] * ((HEIGHT-1.)/maxval));
+        // clamp to display range
+        if (valint >= HEIGHT) { valint = HEIGHT-1; }
+        if (valint < 0) { valint = 0; }
         display_buffer[i][valint] = true;
     }
 
@@ -254,8 +263,14 @@ int64_t button_hold_callback(alarm_id_t id, void *user_data) {
         // A toggles continuous mode
         continuous_mode = ! continuous_mode;
     } else if (id == alarm_id_8) {
-        // DO NOTHING FOR B HOLD
-        return BUTTON_HOLD_MS * 1000;
+        // use B hold to trigger reset of max level
+        if (maxval_samples == 255.) {
+            maxval_samples = -1;  // means to calculate max at next cycle
+        } else {
+            maxval_samples = 255.;  // reset to default
+            printf("Reset maxval\n");
+        }
+        should_draw = true; // always redraw after display reset
     } else if (id == alarm_id_7) {
         // DO NOTHING FOR C HOLD
         return BUTTON_HOLD_MS * 1000;
@@ -381,6 +396,15 @@ int main() {
         int maxfftidx;
         double maxfftsq;
 
+        if (maxval_samples == -1.) {
+            uint8_t maxval = 0;
+            for (int i=0;i < N_SAMPLES;i++) {
+                if (samples[i] > maxval) { maxval = samples[i]; }
+            }
+            maxval_samples = (float) maxval;
+            printf("set maxval to %d,%f\n", maxval, maxval_samples);
+        }
+
         if (should_capture | continuous_mode) {
             gpio_put(LED_GPIO, 1);
             capture_dma();
@@ -421,12 +445,12 @@ int main() {
                 }
                 if (display_spacing == -1) {
                     // zoom in on peak
-                    plot_around_to_buffer(fftabs, N_SAMPLES/2 + 1, maxfftidx);
+                    plot_around_to_buffer(fftabs, N_SAMPLES/2 + 1, maxfftidx, 255.);
                 } else {
-                    plot_to_buffer(fftabs, N_SAMPLES/2 + 1);
+                    plot_to_buffer(fftabs, N_SAMPLES/2 + 1, 255.);
                 }
             } else {
-                plot_to_buffer(samples, N_SAMPLES);
+                plot_to_buffer(samples, N_SAMPLES, maxval_samples);
             }
 
             char toprint[16];
