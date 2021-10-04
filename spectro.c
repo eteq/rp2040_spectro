@@ -251,14 +251,14 @@ void print_samples() {
 int64_t button_hold_callback(alarm_id_t id, void *user_data) {
     int gpio_num = -1;
     if (id == alarm_id_9) {
-        // DO THING FOR A
-        printf("HOLD A");
+        // DO NOTHING FOR A HOLD
+        return BUTTON_HOLD_MS * 1000;
     } else if (id == alarm_id_8) {
-        // DO THING FOR B
-        printf("HOLD B");
+        // DO NOTHING FOR B HOLD
+        return BUTTON_HOLD_MS * 1000;
     } else if (id == alarm_id_7) {
-        // DO THING FOR C
-        printf("HOLD C");
+        // DO NOTHING FOR C HOLD
+        return BUTTON_HOLD_MS * 1000;
     }
 
     return 0;
