@@ -37,6 +37,8 @@
 
 #define WAIT_TIME_MS 10
 
+#define BUTTON_HOLD_MS 1000
+
 
 uint8_t samples[N_SAMPLES];
 uint dma_chan;
@@ -48,6 +50,10 @@ bool should_draw=false;
 bool should_print=false;
 bool draw_frequency=false;
 bool continuous_mode=false;
+
+alarm_id_t alarm_id_9 = -2;
+alarm_id_t alarm_id_8 = -2;
+alarm_id_t alarm_id_7 = -2;
 
 bool display_buffer[WIDTH][HEIGHT];
 
@@ -242,8 +248,61 @@ void print_samples() {
     printf("%-3d\n]\n", samples[N_SAMPLES-1]);
 }
 
+int64_t button_hold_callback(alarm_id_t id, void *user_data) {
+    int gpio_num = -1;
+    if (id == alarm_id_9) {
+        // DO THING FOR A
+        printf("HOLD A");
+    } else if (id == alarm_id_8) {
+        // DO THING FOR B
+        printf("HOLD B");
+    } else if (id == alarm_id_7) {
+        // DO THING FOR C
+        printf("HOLD C");
+    }
+
+    return 0;
+}
+
 void buttons_callback(uint gpio, uint32_t events) {
+    bool press = false;
     if (events & GPIO_IRQ_EDGE_FALL) {
+        // button down
+        switch (gpio) {
+            case 9:
+                alarm_id_9 = add_alarm_in_ms(BUTTON_HOLD_MS, button_hold_callback, NULL, false);
+                break;
+            case 8:
+                alarm_id_8 = add_alarm_in_ms(BUTTON_HOLD_MS, button_hold_callback, NULL, false);
+                break;
+            case 7:
+                alarm_id_7 = add_alarm_in_ms(BUTTON_HOLD_MS, button_hold_callback, NULL, false);
+                break;
+        }
+    } else if (events & GPIO_IRQ_EDGE_RISE) {
+        // button up
+        switch (gpio) {
+            // cancel_alarm returns true if the alarm was canceled, which means
+            // it was not yet fired (I think?), so we interpret that as press
+            case 9:
+                if (alarm_id_9 > -1) {
+                    press = cancel_alarm(alarm_id_9);
+                }
+                break;
+            case 8:
+                if (alarm_id_8 > -1) {
+                    press = cancel_alarm(alarm_id_8);
+                }
+                break;
+            case 7:
+                if (alarm_id_7 > -1) {
+                    press = cancel_alarm(alarm_id_7);
+                }
+                break;
+        }
+    }
+
+    if (press) {
         switch (gpio) {
             case 9: //A
                 should_capture = true;
@@ -300,7 +359,7 @@ int main() {
         gpio_init(pinnum);
         gpio_set_dir(pinnum, GPIO_IN);
         gpio_pull_up(pinnum);
-        gpio_set_irq_enabled_with_callback(pinnum, GPIO_IRQ_EDGE_FALL, true, &buttons_callback);
+        gpio_set_irq_enabled_with_callback(pinnum, GPIO_IRQ_EDGE_FALL | GPIO_IRQ_EDGE_RISE, true, &buttons_callback);
     }
 
     printf("Getting display Ready\n");
