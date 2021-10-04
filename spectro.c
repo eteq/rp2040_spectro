@@ -251,8 +251,8 @@ void print_samples() {
 int64_t button_hold_callback(alarm_id_t id, void *user_data) {
     int gpio_num = -1;
     if (id == alarm_id_9) {
-        // DO NOTHING FOR A HOLD
-        return BUTTON_HOLD_MS * 1000;
+        // A toggles continuous mode
+        continuous_mode = ! continuous_mode;
     } else if (id == alarm_id_8) {
         // DO NOTHING FOR B HOLD
         return BUTTON_HOLD_MS * 1000;
@@ -307,7 +307,6 @@ void buttons_callback(uint gpio, uint32_t events) {
             case 9: //A
                 should_capture = true;
                 should_draw = true;
-                continuous_mode = ! continuous_mode;
                 break;
             case 8: //B
                 if (display_spacing == -1) {
